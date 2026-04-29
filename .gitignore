@@ -1,0 +1,36 @@
+# ==============================
+# OS & 編輯器暫存檔
+# ==============================
+.DS_Store
+.vscode/
+*.swp
+*~
+
+# ==============================
+# OT 層 (Linux Kernel Module)
+# ==============================
+ot_defense_layer/**/*.o
+ot_defense_layer/**/*.ko
+ot_defense_layer/**/*.obj
+ot_defense_layer/**/*.mod.c
+ot_defense_layer/**/*.mod
+ot_defense_layer/**/*.order
+ot_defense_layer/**/*.symvers
+ot_defense_layer/.*.cmd
+
+# ==============================
+# IT 層 (ROS 2 colcon workspaces)
+# ==============================
+it_edge_layer/ros2_ws/build/
+it_edge_layer/ros2_ws/install/
+it_edge_layer/ros2_ws/log/
+it_edge_layer/ros2_ws/**/*.pyc
+it_edge_layer/ros2_ws/__pycache__/
+
+# ==============================
+# Cloud 層 (Node.js / Web)
+# ==============================
+it_cloud_layer/**/node_modules/
+it_cloud_layer/**/*.log
+it_cloud_layer/**/dist/
+it_cloud_layer/**/.env
