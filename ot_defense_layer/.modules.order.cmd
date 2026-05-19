@@ -1,0 +1,1 @@
+savedcmd_/home/yilerler/mcs-edge-controller/ot_defense_layer/modules.order := {   echo /home/yilerler/mcs-edge-controller/ot_defense_layer/src/mock_elc_core.o; :; } > /home/yilerler/mcs-edge-controller/ot_defense_layer/modules.order
