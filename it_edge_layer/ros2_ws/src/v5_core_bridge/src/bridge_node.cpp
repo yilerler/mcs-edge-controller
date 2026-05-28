@@ -14,48 +14,34 @@
 
 using namespace std::chrono_literals;
 
-// ==========================================================
-// 1. Enum 宣告區
-// ==========================================================
-enum class SystemState {
-    NORMAL_OPERATION, ACTIVE_WARNING, DEGRADED, EMERGENCY_LOCKDOWN
-};
-
-enum class DoorState {
-    SECURE_LOCKED, AUTH_PENDING, ACCESS_GRANTED, FORCE_RELEASED
-};
+// 🌟 [V5.2.1 重構] 
+// 這裡原本有 enum class SystemState 與 DoorState 的定義，現在已經被徹底抹除！
+// FSM 大腦將直接使用 v5_ioctl_contract.h 中的 V5_ 巨集。
 
 class V5CoreBridgeNode : public rclcpp::Node {
 public:
     V5CoreBridgeNode() : Node("v5_core_bridge_node"), fd_(-1) {
         memset(&contract_, 0, sizeof(contract_));
 
-        // 開啟底層 OT 核心通訊
         fd_ = open("/dev/v5_safety_core", O_RDWR);
         if (fd_ < 0) {
             RCLCPP_WARN(this->get_logger(), "⚠️ 無法開啟 /dev/v5_safety_core！進入純軟體模擬模式。");
         }
 
-        // 初始化所有 Watchdog 時間戳
         last_m4_time_ = this->now();
-        last_m5_time_ = this->now(); // 🌟 補回 M5
+        last_m5_time_ = this->now();
 
-        // 發布者：強型別安全合約
         telemetry_pub_ = this->create_publisher<v5_interfaces::msg::SafetyState>("safety/semantic_state", 10);
 
-        // 訂閱者：M3 門禁字串指令
         command_sub_ = this->create_subscription<std_msgs::msg::String>(
             "access/door_request", 10, std::bind(&V5CoreBridgeNode::command_callback, this, std::placeholders::_1));
 
-        // 訂閱者：M4 噪音
         noise_sub_ = this->create_subscription<v5_interfaces::msg::SafetyState>(
             "environment/noise", 10, std::bind(&V5CoreBridgeNode::noise_callback, this, std::placeholders::_1));
 
-        // 訂閱者：M5 空品 🌟 (補回)
         air_quality_sub_ = this->create_subscription<v5_interfaces::msg::SafetyState>(
             "environment/air_quality", 10, std::bind(&V5CoreBridgeNode::aq_callback, this, std::placeholders::_1));
 
-        // 20Hz 系統心跳
         timer_ = this->create_wall_timer(50ms, std::bind(&V5CoreBridgeNode::fsm_tick, this));
     }
 
@@ -64,9 +50,6 @@ public:
     }
 
 private:
-    // ==========================================================
-    // 2. 感測器回呼區 (直接讀取 Struct，零延遲)
-    // ==========================================================
     void noise_callback(const v5_interfaces::msg::SafetyState::SharedPtr msg) {
         last_m4_time_ = this->now();
         current_noise_ = msg->noise_db; 
@@ -74,99 +57,76 @@ private:
 
     void aq_callback(const v5_interfaces::msg::SafetyState::SharedPtr msg) {
         last_m5_time_ = this->now();
-        current_pm25_ = msg->pm25; // 🌟 現在認得 current_pm25_ 了
+        current_pm25_ = msg->pm25; 
     }
 
     void command_callback(const std_msgs::msg::String::SharedPtr msg) {
         if (msg->data == "OPEN") {
-            door_state_ = DoorState::AUTH_PENDING;
+            door_state_ = V5_DOOR_PENDING; // 🌟 直通底層字典
             RCLCPP_INFO(this->get_logger(), "💳 收到刷卡請求，進入 AUTH_PENDING 審核狀態...");
         } else if (msg->data == "CLOSE") {
-            door_state_ = DoorState::SECURE_LOCKED;
-            contract_.it_door_request = 0;
+            door_state_ = V5_DOOR_LOCKED;
+            contract_.it_door_request = V5_DOOR_LOCKED;
         }
     }
 
-    // ==========================================================
-    // 3. 核心狀態機引擎
-    // ==========================================================
     void fsm_tick() {
-        // 與 OT 交換合約
         if (fd_ >= 0) {
             ioctl(fd_, V5_IOC_EXCHANGE, &contract_);
         } else {
-            // 軟體模擬：給予預設值避免系統死鎖
-            contract_.ot_system_level = 2; // NORMAL
+            // 軟體模擬：預設給予常態營運巨集
+            contract_.ot_system_level = V5_STATE_NORMAL; 
             contract_.fence_distance = 150.0;
         }
 
-        // Watchdog 斷線判定
         auto now = this->now();
         bool m4_offline = (now - last_m4_time_).seconds() > 3.0;
         bool m5_offline = (now - last_m5_time_).seconds() > 3.0;
 
-        // 巨觀狀態裁決 (優先權由高到低)
-        if (contract_.ot_system_level == 0) {
-            sys_state_ = SystemState::EMERGENCY_LOCKDOWN;
-        } else if (contract_.ot_system_level == 1) {
-            sys_state_ = SystemState::ACTIVE_WARNING;
+        // 🌟 [V5.2.1 重構] 巨觀狀態裁決：不再需要猜測數字，代碼即文件
+        if (contract_.ot_system_level == V5_STATE_EMERGENCY) {
+            sys_state_ = V5_STATE_EMERGENCY;
+        } else if (contract_.ot_system_level == V5_STATE_WARNING) {
+            sys_state_ = V5_STATE_WARNING;
         } else if (m4_offline || m5_offline) {
-            sys_state_ = SystemState::DEGRADED;
+            sys_state_ = V5_STATE_DEGRADED;
         } else if (current_noise_ > 85.0 || current_pm25_ > 150.0) {
-            sys_state_ = SystemState::ACTIVE_WARNING;
+            sys_state_ = V5_STATE_WARNING;
         } else {
-            sys_state_ = SystemState::NORMAL_OPERATION;
+            sys_state_ = V5_STATE_NORMAL;
         }
 
         // 大門邏輯裁決
-        if (sys_state_ == SystemState::EMERGENCY_LOCKDOWN) {
-            door_state_ = DoorState::FORCE_RELEASED;
-            contract_.it_door_request = 0;
+        if (sys_state_ == V5_STATE_EMERGENCY) {
+            door_state_ = V5_DOOR_FORCE_RELEASED;
+            contract_.it_door_request = V5_DOOR_FORCE_RELEASED;
         } else {
-            if (door_state_ == DoorState::AUTH_PENDING) {
-                if (sys_state_ == SystemState::NORMAL_OPERATION) {
-                    door_state_ = DoorState::ACCESS_GRANTED;
-                    contract_.it_door_request = 1;
+            if (door_state_ == V5_DOOR_PENDING) {
+                if (sys_state_ == V5_STATE_NORMAL) {
+                    door_state_ = V5_DOOR_GRANTED;
+                    contract_.it_door_request = V5_DOOR_GRANTED;
                     RCLCPP_INFO(this->get_logger(), "✅ FSM 核准：系統正常，准許開門。");
                 } else {
-                    door_state_ = DoorState::SECURE_LOCKED;
-                    contract_.it_door_request = 0;
+                    door_state_ = V5_DOOR_LOCKED;
+                    contract_.it_door_request = V5_DOOR_LOCKED;
                     RCLCPP_WARN(this->get_logger(), "❌ FSM 攔截：系統狀態異常，拒絕開門！");
                 }
             }
         }
 
-        // 🌟 修正：不帶參數完美呼叫
         publish_semantic_state();
     }
 
-    // 🌟 修正：函數簽名不帶參數，直接使用內部變數
     void publish_semantic_state() {
         auto msg = v5_interfaces::msg::SafetyState();
 
-        // 翻譯系統狀態
-        if (sys_state_ == SystemState::EMERGENCY_LOCKDOWN) {
-            msg.system_state = v5_interfaces::msg::SafetyState::STATE_EMERGENCY;
-        } else if (sys_state_ == SystemState::ACTIVE_WARNING) {
-            msg.system_state = v5_interfaces::msg::SafetyState::STATE_WARNING;
-        } else if (sys_state_ == SystemState::DEGRADED) {
-            msg.system_state = v5_interfaces::msg::SafetyState::STATE_DEGRADED;
-        } else {
-            msg.system_state = v5_interfaces::msg::SafetyState::STATE_NORMAL;
-        }
+        // 🌟🌟🌟 [V5.2.1 終極紅利] 
+        // 以前這裡有 20 多行的 if-else 在把 enum 轉成 0, 1, 2, 3。
+        // 現在因為 C 巨集 (V5_STATE_*) 與 ROS 2 常數 (STATE_*) 的底層數值已經完美對齊，
+        // 我們可以直接做 O(1) 的記憶體賦值！這就是「合約對齊」帶來的極致效能與整潔。
+        msg.system_state = sys_state_;
+        msg.door_state = door_state_;
 
-        // 翻譯大門狀態
-        if (door_state_ == DoorState::SECURE_LOCKED) {
-            msg.door_state = v5_interfaces::msg::SafetyState::DOOR_LOCKED;
-        } else if (door_state_ == DoorState::AUTH_PENDING) {
-            msg.door_state = v5_interfaces::msg::SafetyState::DOOR_PENDING;
-        } else if (door_state_ == DoorState::ACCESS_GRANTED) {
-            msg.door_state = v5_interfaces::msg::SafetyState::DOOR_GRANTED;
-        } else if (door_state_ == DoorState::FORCE_RELEASED) {
-            msg.door_state = v5_interfaces::msg::SafetyState::DOOR_FORCE_RELEASED;
-        }
-
-        // 填入數值
         msg.noise_db = current_noise_;
         msg.pm25 = current_pm25_;
         msg.fence_distance = contract_.fence_distance;
@@ -175,12 +135,14 @@ private:
     }
 
     // ==========================================================
-    // 4. 變數宣告區 🌟 (完整補回所有屬性)
+    // 變數宣告區
     // ==========================================================
     int fd_;
     v5_ioctl_contract_t contract_;
-    SystemState sys_state_ = SystemState::NORMAL_OPERATION;
-    DoorState door_state_ = DoorState::SECURE_LOCKED;
+    
+    // 🌟 將狀態機變數型別改為 uint8_t，完美承接 V5_ 巨集
+    uint8_t sys_state_ = V5_STATE_NORMAL;
+    uint8_t door_state_ = V5_DOOR_LOCKED;
     
     double current_noise_ = 60.0;
     double current_pm25_ = 20.0;
