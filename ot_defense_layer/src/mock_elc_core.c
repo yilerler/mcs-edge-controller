@@ -13,7 +13,7 @@
 
 #include "../include/v5_ioctl_contract.h"
 
-#define CRITICAL_DISTANCE_MM 500 // 圍籬危險閥值 (小於 50cm 觸發局部防禦)
+#define CRITICAL_DISTANCE_MM 500 
 
 struct elc_device {
     spinlock_t lock;                   
@@ -24,7 +24,7 @@ struct elc_device {
 static struct elc_device my_elc;
 
 // =========================================================
-// ⚙️ M2: 電子圍籬輪詢引擎 (Layer 1 防禦 - Kthread)
+// ⚙️ M2: 電子圍籬硬體抽象層 (Layer 1 - 盲目填寫距離)
 // =========================================================
 static int fence_polling_thread(void *data) {
     unsigned long flags;
@@ -35,24 +35,22 @@ static int fence_polling_thread(void *data) {
 
         spin_lock_irqsave(&my_elc.lock, flags);
 
+        // 📝 職責 1：如實填寫物理距離與心跳
         my_elc.reg_map.fence_distance = mock_distance;
         my_elc.reg_map.ot_heartbeat_ms = jiffies_to_msecs(jiffies);
 
-        // 🛡️ 🌟 [V5.2.1 重構] 狀態機互鎖邏輯：不再使用魔術數字 0, 1, 2
-        // 絕對不能覆蓋火警 (EMERGENCY)！
-        if (my_elc.reg_map.ot_system_level != V5_STATE_EMERGENCY) {
-            if (mock_distance < CRITICAL_DISTANCE_MM) {
-                if (my_elc.reg_map.ot_system_level != V5_STATE_WARNING) {
-                    printk(KERN_WARNING "[OT M2] ⚠️ 圍籬闖入 (距離: %d mm)！觸發局部防禦。\n", mock_distance);
-                    my_elc.reg_map.ot_system_level = V5_STATE_WARNING;
-                    my_elc.reg_map.fence_status = V5_FENCE_BRAKING; // 🌟 具象化煞車狀態
-                }
-            } else {
-                if (my_elc.reg_map.ot_system_level == V5_STATE_WARNING) {
-                    printk(KERN_INFO "[OT M2] 🟢 圍籬淨空。恢復常態營運。\n");
-                    my_elc.reg_map.ot_system_level = V5_STATE_NORMAL;
-                    my_elc.reg_map.fence_status = V5_FENCE_CLEAR;   // 🌟 具象化淨空狀態
-                }
+        // 🌟 [V5.2.2 拔除越權] 
+        // 過去這裡會私自判定 ot_system_level = V5_STATE_WARNING。
+        // 現在 OT 喪失宣判危機的權力！它只負責回報物理世界的「圍籬實體狀態 (fence_status)」。
+        if (mock_distance < CRITICAL_DISTANCE_MM) {
+            if (my_elc.reg_map.fence_status != V5_FENCE_BRAKING) {
+                printk(KERN_WARNING "[OT_HAL_M2] Distance < Threshold (%d mm). Setting ICD [fence_status] = V5_FENCE_BRAKING\n", mock_distance);
+                my_elc.reg_map.fence_status = V5_FENCE_BRAKING; 
+            }
+        } else {
+            if (my_elc.reg_map.fence_status != V5_FENCE_CLEAR) {
+                printk(KERN_INFO "[OT_HAL_M2] Distance OK. Setting ICD [fence_status] = V5_FENCE_CLEAR\n");
+                my_elc.reg_map.fence_status = V5_FENCE_CLEAR;   
             }
         }
 
@@ -63,7 +61,7 @@ static int fence_polling_thread(void *data) {
 }
 
 // =========================================================
-// 🚨 M1: 火警中斷模擬器 (Layer 0 絕對武力 - Sysfs)
+// 🚨 M1: 火警中斷接收器 (Layer 0 - 絕對中斷傳遞)
 // =========================================================
 static struct kobject *v5_kobj;
 
@@ -75,16 +73,18 @@ static ssize_t level_store(struct kobject *kobj, struct kobj_attribute *attr, co
     int new_level;
     unsigned long flags;
 
-    // 🌟 [V5.2.1 重構] Sysfs 介面語意對齊 IT (0=正常, 3=火警)
     if (sscanf(buf, "%d", &new_level) == 1 && (new_level == V5_STATE_EMERGENCY || new_level == V5_STATE_NORMAL)) {
         spin_lock_irqsave(&my_elc.lock, flags);
         
         my_elc.reg_map.ot_system_level = new_level;
+        
+        // 🌟 [V5.2.2 拔除越權]
+        // 過去這裡會自作主張寫入 actual_door_state = FORCE_RELEASED。
+        // 現在它只負責把 EMERGENCY 旗標立起來，大門要不要開，等 ROS 2 的 FSM 下指令！
         if (new_level == V5_STATE_EMERGENCY) {
-            printk(KERN_EMERG "[OT M1] 🔥 偵測到火警硬體中斷！啟動 EMERGENCY 全域霸王條款！\n");
-            my_elc.reg_map.actual_door_state = V5_DOOR_FORCE_RELEASED; // 🌟 強制釋放門鎖
+            printk(KERN_EMERG "[OT_HAL_M1] HW_IRQ Triggered. Setting ICD [ot_system_level] = V5_STATE_EMERGENCY\n");
         } else {
-            printk(KERN_INFO "[OT M1] 🔑 主管轉動實體鑰匙，解除鎖定，恢復 NORMAL 營運。\n");
+            printk(KERN_INFO "[OT_HAL_M1] HW_IRQ Cleared. Setting ICD [ot_system_level] = V5_STATE_NORMAL\n");
         }
         
         spin_unlock_irqrestore(&my_elc.lock, flags);
@@ -94,7 +94,7 @@ static ssize_t level_store(struct kobject *kobj, struct kobj_attribute *attr, co
 static struct kobj_attribute level_attribute = __ATTR(level, 0644, level_show, level_store);
 
 // =========================================================
-// ⬆️ 北向通訊：IT 橋接器 (IOCTL 處理)
+// ⬆️ 北向通訊：ICD 合約交換口
 // =========================================================
 static long elc_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     v5_ioctl_contract_t local_copy;
@@ -105,17 +105,14 @@ static long elc_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
     spin_lock_irqsave(&my_elc.lock, flags);
 
+    // 接收 IT 的請求
     my_elc.reg_map.it_door_request = local_copy.it_door_request;
     my_elc.reg_map.rfid_card_hash  = local_copy.rfid_card_hash;
 
-    // 🌟 [V5.2.1 重構] 業務邏輯：只有在 NORMAL (常態) 才能核准開門
-    if (my_elc.reg_map.ot_system_level == V5_STATE_NORMAL) {
-        if (my_elc.reg_map.it_door_request == V5_DOOR_GRANTED) {
-            my_elc.reg_map.actual_door_state = V5_DOOR_GRANTED; 
-        } else {
-            my_elc.reg_map.actual_door_state = V5_DOOR_LOCKED;  
-        }
-    }
+    // 🌟 [V5.2.2 拔除越權] 
+    // 過去這裡有 if (ot_system_level == NORMAL) 的邏輯裁決。
+    // 現在 OT 是無情的繼電器執行者，IT 的 it_door_request 填什麼，它就毫無懸念地推動大門實體狀態。
+    my_elc.reg_map.actual_door_state = my_elc.reg_map.it_door_request;
 
     local_copy = my_elc.reg_map;
     spin_unlock_irqrestore(&my_elc.lock, flags);
@@ -139,8 +136,8 @@ static int __init elc_core_init(void) {
     spin_lock_init(&my_elc.lock);
     memset(&my_elc.reg_map, 0, sizeof(my_elc.reg_map));
     
-    // 🌟 [V5.2.1 重構] 預設為常態營運
     my_elc.reg_map.ot_system_level = V5_STATE_NORMAL; 
+    my_elc.reg_map.actual_door_state = V5_DOOR_LOCKED;
     
     misc_register(&elc_misc_dev);
     v5_kobj = kobject_create_and_add("v5_safety", kernel_kobj);
@@ -148,7 +145,8 @@ static int __init elc_core_init(void) {
 
     my_elc.polling_thread = kthread_run(fence_polling_thread, NULL, "v5_m2_fence");
 
-    printk(KERN_INFO "[OT Core] 🛡️ V5.2.1 語意強化防禦核心上線！\n");
+    // 🌟 冰冷的機器宣告
+    printk(KERN_INFO "[OT_CORE] V5.2.2 Hardware Abstraction Layer initialized. ICD Payload Size: 24 Bytes.\n");
     return 0;
 }
 
@@ -157,7 +155,7 @@ static void __exit elc_core_exit(void) {
     sysfs_remove_file(v5_kobj, &level_attribute.attr);
     kobject_put(v5_kobj);
     misc_deregister(&elc_misc_dev);
-    printk(KERN_INFO "[OT Core] 🛑 核心卸載。\n");
+    printk(KERN_INFO "[OT_CORE] Module unloaded.\n");
 }
 
 module_init(elc_core_init);
