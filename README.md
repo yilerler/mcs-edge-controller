@@ -69,6 +69,8 @@ ros2 launch v5_bringup v5_system.launch.py
 ```
  啟動後，你將在終端機中看到 C++ 橋接節點如何優雅地擋下 `v5_elc.ko` 注入的火警與異常，並協調 Python 微服務進行相對應的降級與警告處置。
 
+---
+
 ## 4. 系統邊界與演進軌跡 (Evolution Roadmap)
 * **雲端信任擴展：** 目前架構專注於邊緣節點內部的邏輯防禦。得益於 IT/OT 的絕對解耦，未來在 `m7_cloud_forwarder` 引入 Zero Trust (零信任架構) 時，底層的 24 Bytes 驅動與 C++ 防禦狀態機將能達到零修改 (Zero-Code-Change) 的無縫銜接。
 * **從 SIL 邁向 HIL (Hardware-In-The-Loop)：** 未來只需將 `mock_elc_core.c` 替換為真實具備 GPIO/I2C 讀取能力的 BSP 驅動，上層龐大的 ROS 2 邏輯即可直接落地於工業現場，完成從模擬到實體的跨越。
