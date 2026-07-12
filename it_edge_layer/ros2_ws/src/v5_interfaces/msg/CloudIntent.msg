@@ -1,0 +1,6 @@
+std_msgs/Header header
+
+string intent_version_hash
+float32 desired_noise_threshold_db
+float32 desired_pm25_threshold
+bool force_drill_mode
