@@ -52,6 +52,9 @@ class M7ForwarderNode(Node):
         # 建立北向意圖插座
         self.intent_pub = self.create_publisher(CloudIntent, '/v5/cloud_intent', 10)
         # 模擬雲端配置下發 (每 15 秒模擬一次後台客服修改參數)
+        # TODO [v5.4 雲地閉環]: M7_DOWNLINK - 移除定時模擬器，改接 Firebase 即時監聽。
+        # 說明: 目前使用 15 秒 Timer 隨機產生參數以驗證大腦沙盒。
+        #       未來應使用 self.db_ref.listen() 監聽雲端 "desired_config" 節點的異動事件。
         self.mock_cloud_timer = self.create_timer(15.0, self.simulate_cloud_downlink)
         
         self.get_logger().info('🛡️ M7 雙向閘道器已就緒 (具備流量塑形與意圖下行模擬)。')
@@ -128,6 +131,10 @@ class M7ForwarderNode(Node):
     # ---------------------------------------------------------
     # 🌟 [下行] 模擬接收雲端意圖
     # ---------------------------------------------------------
+    
+    # TODO [v5.4 雲地閉環]: M7_DOWNLINK - 實作真實的 JSON 解析與防呆邏輯
+    # 說明: 從 Firebase 收到異動事件後，應在此處驗證 JSON 格式與型別 (Type Check)，
+    #       過濾無效的雲端髒資料，然後再打包成 CloudIntent 發布給 C++ 大腦。
     def simulate_cloud_downlink(self):
         # 假設這是從 Firebase Listener 收到的最新設定 JSON
         mock_threshold = random.choice([80.0, 100.0, 150.0, 999.0])

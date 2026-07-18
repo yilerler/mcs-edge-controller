@@ -79,6 +79,10 @@ private:
             out_msg.hardware_error_flags = raw_data.error_flags;
         } else {
             // 模擬模式或硬體失效保底 ➔ 注入防禦性安全常數
+            // TODO [v5.3 HIL硬體落地]: OT_GATEWAY - 替換模擬資料，對接真實 RS485 / Pico W 實體訊號。
+            // 說明: 目前在 fd_ < 0 (無實體 Kernel 模組) 時，強行注入預設常數與硬體健康狀態，
+            //       確保 C++ 大腦在純軟體 (SIL) 環境下能持續運作並驗證防禦邏輯。
+            //       進入 v5.3 時，此節點將被 rs485_gateway_node 取代，或擴充 Serial 讀取能力。
             out_msg.rfid_status = 0;
             out_msg.door_lock_state = 0; 
             out_msg.voc_ppm = 120;       // 正常值範圍

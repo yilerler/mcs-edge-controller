@@ -6,13 +6,12 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "v5_interfaces/msg/safety_state.hpp"
-#include "v5_interfaces/msg/ot_state.hpp" // 🌟 [新增] 南向純淨插座
+#include "v5_interfaces/msg/ot_state.hpp" 
 #include "v5_interfaces/msg/cloud_intent.hpp"
 using namespace std::chrono_literals;
 
 // ==========================================================
 // 🧠 [V5.2.3 核心重構] 絕對純淨的 FSM 邏輯沙盒
-// 🌟 手術完成：已徹底拔除 v5_ioctl_contract_t，大腦現在只看純粹的變數。
 // ==========================================================
 class V5SafetyFSM {
 public:
@@ -170,7 +169,10 @@ private:
             }
             last_door_state = door_state_;
         }
-
+        // TODO [v5.2.4 沙盒深化]: FSM_LOGIC - 將 active_pm25_threshold_ 正式傳入 V5SafetyFSM::evaluate 簽章。
+        // 說明: 目前為了快速驗證 OTA-C，動態閾值攔截暫時實作於大腦外殼 (V5CoreBridgeNode) 中。
+        //       未來應修改 V5SafetyFSM 類別的 evaluate 方法，讓底層純數學沙盒完全接管
+        //       所有動態環境參數的邊界運算與降級邏輯。
         if (current_pm25_ > active_pm25_threshold_) {
             sys_state_ = v5_interfaces::msg::SafetyState::STATE_WARNING;
             RCLCPP_WARN(this->get_logger(), "⚠️ 動態閾值觸發！當前 PM2.5 (%.1f) > 閾值 (%.1f)", current_pm25_, active_pm25_threshold_);
