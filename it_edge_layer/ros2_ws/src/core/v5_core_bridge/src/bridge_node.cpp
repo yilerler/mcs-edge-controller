@@ -11,38 +11,50 @@
 using namespace std::chrono_literals;
 
 // ==========================================================
-// 🧠 [V5.2.3 核心重構] 絕對純淨的 FSM 邏輯沙盒
+// 🧠 [V5.2.4 核心重構] 六角形架構：領域策略引擎 (Domain Policy Engine)
 // ==========================================================
 class V5SafetyFSM {
 public:
+    /**
+     * @brief 評估當前物理事實並輸出系統與門禁狀態
+     * 
+     * @param hardware_error_flags  底層 OT 轉接器回報的硬體致命錯誤 (最高優先權)
+     * @param current_noise         當前噪音值 (dB)
+     * @param current_pm25          當前空氣品質數值
+     * @param active_pm25_threshold 雲端下發的動態安全閾值
+     * @param m4_offline            環境噪音感測器是否斷線
+     * @param m5_offline            空氣品質感測器是否斷線
+     * @param out_sys_state         [輸出] 裁決後的系統安全狀態 (Normal/Warning/Degraded/Emergency)
+     * @param out_door_state        [輸出] 裁決後的門禁狀態 (Locked/Granted/Force Released)
+     */
     static void evaluate(
-        uint32_t hardware_error_flags, // 🌟 改由 OTState 傳入硬體健康度
+        uint32_t hardware_error_flags, 
         double current_noise, 
         double current_pm25, 
+        double active_pm25_threshold, // 🌟 新增：由雲端意圖下發的動態閾值
         bool m4_offline, 
         bool m5_offline,
         uint8_t& out_sys_state,
         uint8_t& out_door_state) 
     {
-        // 1. 巨觀防禦裁決 (決定論：優先權由高到低)
+        // 1. 巨觀防禦裁決 (單一真相來源，無外流決策)
         if (hardware_error_flags > 0) {
-            // 如果底層 OT 轉接器回報硬體異常，直接升級為緊急狀態
+            // 最高優先權：底層 OT 硬體異常
             out_sys_state = v5_interfaces::msg::SafetyState::STATE_EMERGENCY;
         } else if (m4_offline || m5_offline) {
+            // 次高優先權：感測器連線遺失降級
             out_sys_state = v5_interfaces::msg::SafetyState::STATE_DEGRADED;
-        } else if (current_noise > 85.0 || current_pm25 > 150.0) {
+        } else if (current_noise > 85.0 || current_pm25 > active_pm25_threshold) {
+            // 🌟 閾值判斷已移入核心：動態環境危害
             out_sys_state = v5_interfaces::msg::SafetyState::STATE_WARNING;
         } else {
             out_sys_state = v5_interfaces::msg::SafetyState::STATE_NORMAL;
         }
 
-        // 2. 邊界存取裁決 (門禁控制)
+        // 2. 邊界存取裁決 (門禁控制策略)
         if (out_sys_state == v5_interfaces::msg::SafetyState::STATE_EMERGENCY) {
-            // 霸王條款：無條件釋放門鎖。
-            // 🌟 大腦只負責做決定，不再負責寫入 ioctl。
             out_door_state = v5_interfaces::msg::SafetyState::DOOR_FORCE_RELEASED;
         } else {
-            // 常規狀態審核
             if (out_door_state == v5_interfaces::msg::SafetyState::DOOR_PENDING) {
                 if (out_sys_state == v5_interfaces::msg::SafetyState::STATE_NORMAL) {
                     out_door_state = v5_interfaces::msg::SafetyState::DOOR_GRANTED;
@@ -87,8 +99,6 @@ public:
 
         timer_ = this->create_wall_timer(50ms, std::bind(&V5CoreBridgeNode::fsm_tick, this));
     }
-
-    // 🌟 刪除：解構子裡面的 close(fd_) 已經不需要了
 
 private:
     // 🌟 新增：南向 OT 狀態的回調函數
@@ -143,23 +153,29 @@ private:
 
     void fsm_tick() {
         // --------------------------------------------------
-        // Phase 1: 準備防禦參數 (由 OT 訂閱取代 I/O 讀取)
+        // Phase 1: 整理 Infrastructure 送來的 DTO (資料傳輸物件)
         // --------------------------------------------------
         auto now = this->now();
         bool m4_offline = (now - last_m4_time_).seconds() > 3.0;
         bool m5_offline = (now - last_m5_time_).seconds() > 3.0;
 
         // --------------------------------------------------
-        // Phase 2: 🌟 呼叫大腦 (Pure Logic Sandbox) 🌟
+        // Phase 2: 🌟 唯一決策入口 (呼叫 Domain Policy Engine)
         // --------------------------------------------------
         V5SafetyFSM::evaluate(
-            latest_ot_error_flags_, // 餵入來自南向轉接器的健康資訊
-            current_noise_, current_pm25_, 
-            m4_offline, m5_offline, 
-            sys_state_, door_state_
+            latest_ot_error_flags_, 
+            current_noise_, 
+            current_pm25_, 
+            active_pm25_threshold_, // 🌟 將快取的意圖參數餵入沙盒
+            m4_offline, 
+            m5_offline, 
+            sys_state_, 
+            door_state_
         );
 
-        // 防禦 Log 紀錄
+        // --------------------------------------------------
+        // Phase 3: 狀態攔截與發布
+        // --------------------------------------------------
         static uint8_t last_door_state = v5_interfaces::msg::SafetyState::DOOR_LOCKED;
         if (door_state_ != last_door_state) {
             if (door_state_ == v5_interfaces::msg::SafetyState::DOOR_GRANTED) {
@@ -168,17 +184,6 @@ private:
                 RCLCPP_WARN(this->get_logger(), "❌ FSM 攔截：系統狀態異常，拒絕開門！");
             }
             last_door_state = door_state_;
-        }
-        // TODO [v5.2.4 沙盒深化]: FSM_LOGIC - 將 active_pm25_threshold_ 正式傳入 V5SafetyFSM::evaluate 簽章。
-        // 說明: 目前為了快速驗證 OTA-C，動態閾值攔截暫時實作於大腦外殼 (V5CoreBridgeNode) 中。
-        //       未來應修改 V5SafetyFSM 類別的 evaluate 方法，讓底層純數學沙盒完全接管
-        //       所有動態環境參數的邊界運算與降級邏輯。
-        if (current_pm25_ > active_pm25_threshold_) {
-            sys_state_ = v5_interfaces::msg::SafetyState::STATE_WARNING;
-            RCLCPP_WARN(this->get_logger(), "⚠️ 動態閾值觸發！當前 PM2.5 (%.1f) > 閾值 (%.1f)", current_pm25_, active_pm25_threshold_);
-        } else {
-             // 呼叫原本的 FSM
-            V5SafetyFSM::evaluate(latest_ot_error_flags_, current_noise_, current_pm25_, m4_offline, m5_offline, sys_state_, door_state_);
         }
         
         publish_semantic_state();
