@@ -2,10 +2,32 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>v5_bringup</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="yilerler@todo.todo">yilerler</maintainer>
-  <license>TODO: License declaration</license>
+  <version>5.2.4</version>
+  <description>V5 Safety Controller System Bringup and Lifecycle Manager</description>
+  <maintainer email="your_email@example.com">Joshua Lin</maintainer>
+  <license>Apache License 2.0</license>
+
+  <!-- 🌟 系統總指揮官的執行期依賴 (Execution Dependencies) -->
+  <!-- 宣告這些相依性，確保在乾淨的環境下使用 rosdep 能夠一次把所有拼圖裝齊 -->
+  
+  <!-- Wave 0: 物理底層 -->
+  <exec_depend>v5_ot_gateway</exec_depend>
+  
+  <!-- Wave 1: 領域核心大腦 -->
+  <exec_depend>v5_core_bridge</exec_depend>
+  
+  <!-- Wave 2: 邊緣 IT 微服務 -->
+  <exec_depend>m3_access_control</exec_depend>
+  <exec_depend>m4_environment_monitor</exec_depend>
+  <exec_depend>m5_air_quality_monitor</exec_depend>
+  <exec_depend>m6_local_display</exec_depend>
+  
+  <!-- Wave 3: 北向雲端防波堤 -->
+  <exec_depend>v5_it_gateway</exec_depend>
+
+  <!-- 啟動系統本身需要的 ROS 2 核心套件 -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

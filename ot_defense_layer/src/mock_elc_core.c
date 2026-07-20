@@ -11,6 +11,7 @@
 #include <linux/spinlock.h> 
 #include <linux/random.h>  
 
+// 🌟 引入我們剛剛極致瘦身為 12 Bytes 的合約
 #include "../include/v5_ioctl_contract.h"
 
 #define CRITICAL_DISTANCE_MM 500 
@@ -24,7 +25,7 @@ struct elc_device {
 static struct elc_device my_elc;
 
 // =========================================================
-// ⚙️ M2: 電子圍籬硬體抽象層 (Layer 1 - 盲目填寫距離)
+// ⚙️ M2: 電子圍籬硬體抽象層 (Layer 1 - 純粹的物理距離與狀態)
 // =========================================================
 static int fence_polling_thread(void *data) {
     unsigned long flags;
@@ -38,10 +39,9 @@ static int fence_polling_thread(void *data) {
         // 📝 職責 1：如實填寫物理距離與心跳
         my_elc.reg_map.fence_distance = mock_distance;
         my_elc.reg_map.ot_heartbeat_ms = jiffies_to_msecs(jiffies);
+        // (假設有實體火災溫度感測器，也會在這裡讀取 ADC 並寫入 fire_heat_value)
 
-        // 🌟 [V5.2.2 拔除越權] 
-        // 過去這裡會私自判定 ot_system_level = V5_STATE_WARNING。
-        // 現在 OT 喪失宣判危機的權力！它只負責回報物理世界的「圍籬實體狀態 (fence_status)」。
+        // 📝 職責 2：僅回報「圍籬實體狀態」，不越權判定系統級別
         if (mock_distance < CRITICAL_DISTANCE_MM) {
             if (my_elc.reg_map.fence_status != V5_FENCE_BRAKING) {
                 printk(KERN_WARNING "[OT_HAL_M2] Distance < Threshold (%d mm). Setting ICD [fence_status] = V5_FENCE_BRAKING\n", mock_distance);
@@ -61,7 +61,7 @@ static int fence_polling_thread(void *data) {
 }
 
 // =========================================================
-// 🚨 M1: 火警中斷接收器 (Layer 0 - 絕對中斷傳遞)
+// 🚨 M1: 實體火警/緊急中斷接收器 (Layer 0 - 絕對中斷)
 // =========================================================
 static struct kobject *v5_kobj;
 
@@ -78,9 +78,6 @@ static ssize_t level_store(struct kobject *kobj, struct kobj_attribute *attr, co
         
         my_elc.reg_map.ot_system_level = new_level;
         
-        // 🌟 [V5.2.2 拔除越權]
-        // 過去這裡會自作主張寫入 actual_door_state = FORCE_RELEASED。
-        // 現在它只負責把 EMERGENCY 旗標立起來，大門要不要開，等 ROS 2 的 FSM 下指令！
         if (new_level == V5_STATE_EMERGENCY) {
             printk(KERN_EMERG "[OT_HAL_M1] HW_IRQ Triggered. Setting ICD [ot_system_level] = V5_STATE_EMERGENCY\n");
         } else {
@@ -94,27 +91,24 @@ static ssize_t level_store(struct kobject *kobj, struct kobj_attribute *attr, co
 static struct kobj_attribute level_attribute = __ATTR(level, 0644, level_show, level_store);
 
 // =========================================================
-// ⬆️ 北向通訊：ICD 合約交換口
+// ⬆️ 北向通訊：ICD 合約交換口 (IOCTL)
 // =========================================================
 static long elc_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     v5_ioctl_contract_t local_copy;
     unsigned long flags;
 
     if (cmd != V5_IOC_EXCHANGE) return -ENOTTY;
+    
+    // 雖然目前沒有要從 IT 收資料，但遵循 _IOWR 標準雙向拷貝
     if (copy_from_user(&local_copy, (v5_ioctl_contract_t __user *)arg, sizeof(local_copy))) return -EFAULT;
 
     spin_lock_irqsave(&my_elc.lock, flags);
 
-    // 接收 IT 的請求
-    my_elc.reg_map.it_door_request = local_copy.it_door_request;
-    my_elc.reg_map.rfid_card_hash  = local_copy.rfid_card_hash;
-
-    // 🌟 [V5.2.2 拔除越權] 
-    // 過去這裡有 if (ot_system_level == NORMAL) 的邏輯裁決。
-    // 現在 OT 是無情的繼電器執行者，IT 的 it_door_request 填什麼，它就毫無懸念地推動大門實體狀態。
-    my_elc.reg_map.actual_door_state = my_elc.reg_map.it_door_request;
-
+    // 🌟 [戰略撤退完成] 
+    // 這裡再也沒有 it_door_request，也沒有 rfid_card_hash。
+    // LKM 就是個無情的物理狀態快照機。
     local_copy = my_elc.reg_map;
+
     spin_unlock_irqrestore(&my_elc.lock, flags);
 
     if (copy_to_user((v5_ioctl_contract_t __user *)arg, &local_copy, sizeof(local_copy))) return -EFAULT;
@@ -137,7 +131,7 @@ static int __init elc_core_init(void) {
     memset(&my_elc.reg_map, 0, sizeof(my_elc.reg_map));
     
     my_elc.reg_map.ot_system_level = V5_STATE_NORMAL; 
-    my_elc.reg_map.actual_door_state = V5_DOOR_LOCKED;
+    // 門禁初始化已被移除
     
     misc_register(&elc_misc_dev);
     v5_kobj = kobject_create_and_add("v5_safety", kernel_kobj);
@@ -145,8 +139,8 @@ static int __init elc_core_init(void) {
 
     my_elc.polling_thread = kthread_run(fence_polling_thread, NULL, "v5_m2_fence");
 
-    // 🌟 冰冷的機器宣告
-    printk(KERN_INFO "[OT_CORE] V5.2.2 Hardware Abstraction Layer initialized. ICD Payload Size: 24 Bytes.\n");
+    // 🌟 更新宣言：我是 12 Bytes 的純物理防禦盾牌
+    printk(KERN_INFO "[OT_CORE] V5.2.4 Pure Physical Defense Shield initialized. ICD Payload: 12 Bytes.\n");
     return 0;
 }
 

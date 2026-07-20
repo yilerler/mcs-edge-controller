@@ -24,6 +24,10 @@ if(BUILD_TESTING)
 endif()
 
 add_executable(ot_gateway_node src/ot_gateway_node.cpp)
+target_include_directories(ot_gateway_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+  
 ament_target_dependencies(ot_gateway_node rclcpp v5_interfaces std_msgs)
 
 install(TARGETS

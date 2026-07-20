@@ -1,18 +1,17 @@
-# 嚴格對應底層 v5_ioctl_contract_t 的物理狀態欄位
+# V5 OT 實體防禦狀態報告 (OT Gateway -> Bridge Node)
+# ⚠️ 嚴格對齊 Kernel: v5_ioctl_contract_t (12 Bytes 完美瘦身版) ⚠️
+
 std_msgs/Header header
 
-# 門禁與狀態
-uint8 rfid_status
-uint8 door_lock_state
+# 領域 1：全域系統防禦
+uint8 ot_system_level      # 對應 V5_STATE_* 
 
-# 環境感測器 (MQ-3, MQ-135, ZE25-O2)
-uint16 voc_ppm
-uint16 co_ppm
-uint16 o2_concentration
+# 領域 2：M2 智慧電子圍籬
+uint8 fence_status         # 對應 V5_FENCE_* 
+uint32 fence_distance      # 實體測距數值 (mm)
 
-# 噪音與人員健康
-uint8 noise_db
-uint16 heart_rate_bpm
+# 領域 3：火災與環境硬體防禦
+uint16 fire_heat_value     # 實體火警溫度/特徵值
 
-# 底層硬體錯誤旗標 (用來觸發 FSM 降級)
-uint32 hardware_error_flags
+# 領域 4：硬體心跳
+uint32 ot_heartbeat_ms     # 來自微控制器的開機微秒/毫秒數
