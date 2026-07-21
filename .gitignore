@@ -26,11 +26,21 @@ __pycache__/
 .DS_Store
 .vscode/
 
-# 4. 🔑 機密檔案與憑證 (絕對不能進版控！)
+# 4. 🔑 機密檔案與憑證
 secrets/
 *.json
 serviceAccountKey.json
 
 # 5. 🗑️ 測試或過期資料夾
 # mock_client/
+
+# 6. 🖥 OS generated files
+   .DS_Store
+   .DS_Store?
+   ._*
+   .Spotlight-V100
+   .Trashes
+   ehthumbs.db
+   Thumbs.db
+   __MACOSX/
 EOF

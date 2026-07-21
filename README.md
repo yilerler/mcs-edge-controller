@@ -12,6 +12,43 @@
 ---
 
 ## 2. 核心架構設計 (Core Architecture in Code)
+```mermaid
+graph TD
+    %% Cloud Layer
+    Cloud[Cloud / AI / Dashboard]
+    
+    %% IT Layer (ROS 2)
+    subgraph IT_Layer [Information Technology IT - Non-Deterministic]
+        App[Application Services<br/>m3, m4, m5, m6]
+        ROS2[ROS 2 Runtime Topology]
+        Bridge[C++ Core Bridge]
+        App <--> ROS2
+        ROS2 <--> Bridge
+    end
+
+    %% Contract Layer
+    Contract((12-byte ICD Contract<br/>v5_ioctl_contract.h))
+    
+    %% OT Layer
+    subgraph OT_Layer [Operational Technology OT - Deterministic]
+        Kernel[Linux Kernel Driver / mock_elc_core]
+        Hardware[Physical World Sensors<br/>RFID, MQ, MAX30100]
+        Kernel <--> Hardware
+    end
+
+    %% Data Flow
+    Cloud <--> App
+    Bridge <--> Contract
+    Contract <--> Kernel
+    
+    %% Styling
+    classDef ot fill:#f9d0c4,stroke:#333,stroke-width:2px;
+    classDef it fill:#d4e6f1,stroke:#333,stroke-width:2px;
+    classDef contract fill:#fcf3cf,stroke:#b7950b,stroke-width:2px;
+    class IT_Layer it;
+    class OT_Layer ot;
+    class Contract contract;
+```
 
 本專案展示了從 Linux 核心驅動到多語言 ROS 2 微服務的「全端邊緣防禦」拓樸結構，對應的關鍵程式碼如下：
 
