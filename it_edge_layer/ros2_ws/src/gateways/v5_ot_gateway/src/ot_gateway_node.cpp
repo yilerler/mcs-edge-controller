@@ -8,7 +8,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-// 🌟 引入我們剛剛極致瘦身為 12 Bytes 的合約
+// 🌟 引入 12 Bytes 的合約
 #include "v5_ot_gateway/v5_ioctl_contract.h" 
 
 using namespace std::chrono_literals;
