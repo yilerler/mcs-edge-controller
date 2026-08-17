@@ -9,29 +9,83 @@
 
 ## 2. Architecture Boundary (架構邊界)
 
-* **Inbound (接收):** [`OTState.msg`](../../it_edge_layer/ros2_ws/src/core/v5_interfaces/msg/OTState.msg)（底層物理真理）、[`CloudIntent.msg`](../../it_edge_layer/ros2_ws/src/core/v5_interfaces/msg/CloudIntent.msg)（雲端配置意圖）、環境感測 Topic（噪音、PM2.5），以及門禁微服務的 `OPEN/CLOSE` 請求。
-* **Outbound (輸出):** 包含全域系統狀態與門禁裁決結果的 [`SafetyState.msg`](../../it_edge_layer/ros2_ws/src/core/v5_interfaces/msg/SafetyState.msg)。
+本模組強制實施**六角形架構 (Hexagonal Architecture / Ports & Adapters)**，將邊界嚴格劃分為外層的「ROS 2 基礎設施」與內層的「純 C++ 策略大腦」。
+
+* **外殼層 (Infrastructure Shell / ROS 2 Node):**
+* **Inbound Ports:** 訂閱 `OTState.msg`, `CloudIntent.msg`, 以及各類感測 Topic。負責拆解 ROS 2 封包、管理時間戳記，並將資料 Mapping 為純 C++ 基本型別。
+* **Outbound Ports:** 將決策結果打包為 `SafetyState.msg` 並發布至 DDS 匯流排。
+* **邊界防護 (Intent Veto & Watchdog):** 在外殼層實施意圖攔截與超時監控。當處於危險狀態時直接拋棄雲端指令；當偵測到底層心跳逾時（>1.0s），主動竄改輸入值以觸發核心降級。
+
+
+* **領域層 (Domain Core / Pure C++ FSM):**
 * **Strict Constraints (嚴格限制):**
-* **不反向控制 OT 底層：** 針對 OT 層僅具備讀取權限，絕不向下發送控制指令，維持單向資料流。
-* **不處理業務身份驗證：** 節點內禁用 RFID 卡號比對或密碼驗證邏輯；僅根據「當下全域安全狀態」對已驗證的存取請求進行最終的布林值（Boolean）裁決（放行/鎖定）。
+* **零框架相依：** 內部絕對禁止出現任何 `<rclcpp/rclcpp.hpp>` 或 DDS 相關依賴。
+* **單向狀態推演：** 僅具備根據輸入計算輸出的純函式 (Pure Function) 特性，絕不主動發起外部網路 I/O 或向下反控 OT 層。
 
 
+
+### 📊 Canonical Diagram: Hexagonal FSM & Intent Veto
+
+本圖表呈現 Level 1 核心引擎的同心圓隔離邊界。展示了基礎設施外殼如何保護內部決策核心，以及看門狗與意圖否決的具體攔截點（參見 Section 3）。
+
+```text
+               [ CloudIntent ]   [ OTState ]   [ Env / Door Requests ]
+                      │               │                  │
+ ╔════════════════════│═══════════════│══════════════════│════════════════╗
+ ║ ROS 2 Shell        │               │                  │                ║
+ ║ (V5CoreBridge_    [▼]             [▼]                [▼]               ║
+ ║  Node)         [ VETO ]       (Watchdog)         (Watchdog)            ║
+ ║                [BARRIER]        (>1.0s)            (>3.0s)             ║
+ ║                    │               │                  │                ║
+ ║  ─ ─ ─ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─  ┼ ─ ─ ─ ─ ─ ─ ─  ║
+ ║ Pure C++ Core      ▼               ▼                  ▼                ║
+ ║ (V5SafetyFSM)  ( double )      ( uint8_t )       ( bool / double )     ║
+ ║               [ threshold]    [ ot_level ]      [ m4_offline... ]      ║
+ ║                    │               └────────┬─────────┘                ║
+ ║                    ▼                        ▼                          ║
+ ║              ((  V5SafetyFSM::evaluate( primitives )  )) ◄══[ TICK ]   ║
+ ║                                             │                 TIMER    ║
+ ║                                             ▼                  (50ms)  ║
+ ║                                   [ out_sys_state ]                    ║
+ ║  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  ║
+ ║                                             │                          ║
+ ║                                       (Message Pack)                   ║
+ ║                                             ▼                          ║
+ ╚═════════════════════════════════════════════│══════════════════════════╝
+                                               ▼
+                                      [ SafetyState.msg ]
+
+```
+
+> **Visual Semantics (視覺語意與證據綁定)**
+> * `╔═ / ─ ─` **(Hexagonal Isolation):** 雙層隔離邊界。對應 `Item 1`，由實作層中 `V5SafetyFSM::evaluate()` 僅接收純 C++ 基本型別 (`uint8_t`, `double`, `bool`) 提供證據。
+> * `[ VETO BARRIER ]`: 意圖否決屏障。對應 `Item 2`，由外殼層 `intent_callback` 中 `if (sys_state_ == EMERGENCY) return;` 的直接阻斷邏輯提供證據。
+> * `[ TICK TIMER (50ms) ]`: 時間驅動脈搏。對應 `Item 3`，由外殼層 `timer_` 的 50ms (20Hz) 定期觸發提供證據。
+> * `(Watchdog)`: 超時竄改降級。對應 `Item 3`，由外殼層 `fsm_tick` 中 `(now - last_time) > 1.0` 強制設定 `latest_ot_sys_level_ = 2` 的邏輯提供證據。
+> 
+> 
+
+---
 
 ## 3. Validation Traceability (驗證溯源)
 
-* **Item 1: 領域與外殼解耦 (Hexagonal Architecture)**
-* **Evidence (客觀證據):** `V5SafetyFSM::evaluate()` 宣告為純 C++ 靜態函式，內部無任何 `rclcpp` 依賴；ROS 2 的 Topic 收發與時間戳記管理全數集中於 `V5CoreBridgeNode` 類別中。
-* **Architecture Inference (架構推導):** 將通訊基礎設施與核心業務邏輯徹底分離，確保決策引擎的純淨性，使其能在無硬體與無 ROS 2 框架的環境下執行 100% 的邏輯單元測試。 Ref: [`ADR-0005`](../ADR/ADR-0005-Decouple_FSM_With_Hexagonal_Architecture.md)
+* **Item 1: 領域與外殼解耦 (Hexagonal Architecture Isolation)**
+* **Evidence (客觀證據):**
+* [`bridge_node.cpp`](../../it_edge_layer/ros2_ws/src/core/v5_core_bridge/src/bridge_node.cpp) 中，`V5SafetyFSM::evaluate()` 宣告為純 C++ 靜態函式，內部無任何 `rclcpp` 依賴。
+* ROS 2 的 Topic 收發、型別轉換 (Type Mapping) 與時間戳記管理，全數集中且受限於 `V5CoreBridgeNode` 類別 (Infrastructure Shell) 中。
+
+
+* **Architecture Inference (架構推導):** 將非同步的通訊基礎設施與核心業務邏輯徹底物理隔離，確保決策引擎的絕對純淨性。這讓大腦免於 Race Condition 威脅，並能在無硬體與無 ROS 2 框架的環境下執行 100% 覆蓋率的邏輯單元測試。 Ref: [`ADR-0005`](../ADR/ADR-0005-Decouple_FSM_With_Hexagonal_Architecture.md)
 
 
 * **Item 2: 邊緣意圖否決權 (Intent Veto & Edge Sovereignty)**
-* **Evidence (客觀證據):** `intent_callback` 實作中包含 `if (sys_state_ == ... STATE_EMERGENCY) { return; }` 與針對 `desired_pm25_threshold` 的數值上下限檢查。
-* **Architecture Inference (架構推導):** 確立了邊緣端的最高決策優先權。當實體發生災難或雲端配置越界時，系統強制阻斷配置更新，防止雲端錯誤指令覆蓋本地的安全狀態。 Ref: [`ADR-0006`](../ADR/ADR-0006-Edge_Intent_Veto_Right.md)
+* **Evidence (客觀證據):** 外殼層的 `intent_callback` 實作中，明確包含了 `if (sys_state_ == STATE_EMERGENCY) { return; }` 強制中斷指令，以及針對 `desired_pm25_threshold` 的數值上下限安全檢查。
+* **Architecture Inference (架構推導):** 確立了邊緣端的最高決策優先權與**意圖邊界過濾 (Intent Filtering)**。當實體發生災難時，系統在外殼層 (Shell) 直接阻斷雲端指令，防止惡意或錯誤的配置意圖滲透進純淨的 FSM 覆蓋本地防禦。 Ref: [`ADR-0006`](../ADR/ADR-0006-Edge_Intent_Veto_Right.md)
 
 
 * **Item 3: 全域看門狗與主動降級 (Global Watchdog Degradation)**
-* **Evidence (客觀證據):** `fsm_tick` 定時器中，實作了針對 `last_ot_heartbeat_time_`、`last_m4_time_` 等變數的 `(now - last_time).seconds() > threshold` 超時判定。
-* **Architecture Inference (架構推導):** 確立了系統的 Fail-Safe 機制。當南向實體設備或同層級微服務發生斷線或崩潰時，系統不再信賴過期快取，並主動切換至 `STATE_DEGRADED` 狀態以限縮潛在風險。 Ref: [`ADR-0007`](../ADR/ADR-0007-Timestamp_Based_Global_Watchdog.md)
+* **Evidence (客觀證據):** 外殼層的 `fsm_tick` 定時器中，實作了針對 `last_ot_heartbeat_time_`、`last_m4_time_` 等變數的超時判定 (`> 1.0s` 與 `> 3.0s`)，並在超時時直接竄改輸入變數。
+* **Architecture Inference (架構推導):** 確立了系統時間驅動 (Time-driven) 的 Fail-Safe 機制。當南向實體設備或同層級微服務發生靜默崩潰 (Silent Failure) 導致資料逾時，定時器 (Tick) 將強制觸發狀態更新，系統不再信賴過期快取，主動切換至 `STATE_DEGRADED` 以限縮風險。 Ref: [`ADR-0007`](../ADR/ADR-0007-Timestamp_Based_Global_Watchdog.md)
 
 
 
