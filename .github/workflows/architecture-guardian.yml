@@ -1,0 +1,60 @@
+name: 🛡️ Architecture Guardian (架構守門員)
+
+# 觸發條件：當有人發起或更新 Pull Request 到 master 分支時
+on:
+  pull_request:
+    branches:
+      - master
+
+# 權限設定：允許機器人在 PR 中留言
+permissions:
+  pull-requests: write
+
+jobs:
+  governance-check:
+    name: Repository Evidence Tracking
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      # 使用 dorny/paths-filter 來精準偵測「核心證據檔案」是否被修改
+      - name: 🔍 Check for Core Evidence Changes
+        uses: dorny/paths-filter@v3
+        id: evidence_filter
+        with:
+          filters: |
+            core_files:
+              - 'ot_defense_layer/include/v5_ioctl_contract.h'
+              - 'ot_defense_layer/src/mock_elc_core.c'
+              - 'it_edge_layer/ros2_ws/src/core/v5_core_bridge/src/bridge_node.cpp'
+              - 'it_edge_layer/ros2_ws/src/gateways/v5_ot_gateway/src/ot_gateway_node.cpp'
+              - 'it_edge_layer/ros2_ws/src/gateways/v5_it_gateway/v5_it_gateway/it_gateway_node.py'
+
+      # 如果核心檔案被修改，呼叫 GitHub 內建腳本自動留言警告
+      - name: 🚨 Post Architecture Review Warning
+        if: steps.evidence_filter.outputs.core_files == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const message = `
+            ## ⚠️ 系統架構守門員警報 (Architecture Guardian Alert)
+
+            系統偵測到本次 PR 修改了**核心底層證據檔案 (Core Repository Evidence)**。這些檔案承載了系統的實體邊界與防腐層合約。
+            
+            身為開發者或架構 Reviewer，請在合併前確認以下【架構治理基準】：
+            
+            - [ ] **AKB 同步驗證**：本次修改是否破壞了 \`docs/AKB/\` 中定義的 12 Bytes 靜態合約、意圖否決屏障 (Intent Veto) 或星型拓樸約束？若是，請同步更新對應的 Canonical Diagram。
+            - [ ] **ADR 追溯**：若本次修改改變了決策邏輯（例如：開放了某個下行權限、變更了型別防禦），請確保提交了對應的 ADR (Architecture Decision Record) 以說明變更意圖。
+            
+            > *「軟體架構是由它所禁止的事物來定義的，請確保核心防護邊界未被穿透。」*
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
