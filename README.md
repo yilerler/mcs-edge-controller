@@ -49,15 +49,15 @@ MCS Edge Controller 是一個工業級邊緣控制系統。本系統透過合約
 
 本專案採用「工件中介的架構治理 (Artifact-Mediated Architecture Governance)」。我們將「系統是什麼」、「為什麼這樣設計」以及「如何維持設計」的知識嚴格分離：
 
-* 📘 **[Architecture Knowledge Base (AKB)](./docs/AKB/)**
+📘 **[Architecture Knowledge Base (AKB)](./docs/AKB/)**
 * **What is true now?** — 描述當下的架構正典、邊界定義與視覺化約束。
 
 
-* 📙 **[Architecture Decision Records (ADR)](./docs/ADR/)**
+📙 **[Architecture Decision Records (ADR)](./docs/ADR/)**
 * **Why is it designed this way?** — 紀錄架構演進的歷史脈絡、技術妥協與預期後果。
 
 
-* ⚖️ **[Architecture Governance](./docs/ARCHITECTURE_GOVERNANCE.md)**
+⚖️ **[Architecture Governance](./docs/ARCHITECTURE_GOVERNANCE.md)**
 * **How do we maintain this system?** — 定義程式碼、架構圖與文件之間如何對帳與除錯的最高治理法則。
 
 
