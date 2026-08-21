@@ -124,28 +124,67 @@ static struct miscdevice elc_misc_dev = {
 };
 
 // =========================================================
-// 初始化與卸載
+// 初始化與卸載 (具備嚴格錯誤復原機制的 Kernel 級實作)
 // =========================================================
 static int __init elc_core_init(void) {
+    int ret; // 用來承接所有需要嚴格檢查的回傳值
+
     spin_lock_init(&my_elc.lock);
     memset(&my_elc.reg_map, 0, sizeof(my_elc.reg_map));
     
     my_elc.reg_map.ot_system_level = V5_STATE_NORMAL; 
-    // 門禁初始化已被移除
     
-    misc_register(&elc_misc_dev);
-    v5_kobj = kobject_create_and_add("v5_safety", kernel_kobj);
-    sysfs_create_file(v5_kobj, &level_attribute.attr);
+    // 1. 註冊 misc 設備
+    ret = misc_register(&elc_misc_dev);
+    if (ret) {
+        printk(KERN_ERR "[OT_CORE] Failed to register misc device\n");
+        return ret;
+    }
 
+    // 2. 建立 kobject (若記憶體不足可能會失敗)
+    v5_kobj = kobject_create_and_add("v5_safety", kernel_kobj);
+    if (!v5_kobj) {
+        printk(KERN_ERR "[OT_CORE] Failed to create kobject\n");
+        ret = -ENOMEM;
+        goto err_misc; // 失敗時，跳到下面去釋放 misc device
+    }
+
+    // 3. 建立 sysfs 檔案 (這正是消除 Warning 的關鍵點)
+    ret = sysfs_create_file(v5_kobj, &level_attribute.attr);
+    if (ret) {
+        printk(KERN_ERR "[OT_CORE] Failed to create sysfs file\n");
+        goto err_kobj; // 失敗時，跳到下面去釋放 kobject
+    }
+
+    // 4. 啟動自主防禦輪詢執行緒
     my_elc.polling_thread = kthread_run(fence_polling_thread, NULL, "v5_m2_fence");
+    if (IS_ERR(my_elc.polling_thread)) {
+        printk(KERN_ERR "[OT_CORE] Failed to start polling thread\n");
+        ret = PTR_ERR(my_elc.polling_thread);
+        my_elc.polling_thread = NULL;
+        goto err_sysfs; // 失敗時，跳到下面去釋放 sysfs 檔案
+    }
 
     // 🌟 更新宣言：我是 12 Bytes 的純物理防禦盾牌
-    printk(KERN_INFO "[OT_CORE] V5.2.4 Pure Physical Defense Shield initialized. ICD Payload: 12 Bytes.\n");
+    printk(KERN_INFO "[OT_CORE] V5 Pure Physical Defense Shield initialized. ICD Payload: 12 Bytes.\n");
     return 0;
+
+// ---------------------------------------------------------
+// 錯誤復原區 (Rollback Area) - 依序反向釋放資源
+// ---------------------------------------------------------
+err_sysfs:
+    sysfs_remove_file(v5_kobj, &level_attribute.attr);
+err_kobj:
+    kobject_put(v5_kobj);
+err_misc:
+    misc_deregister(&elc_misc_dev);
+    return ret;
 }
 
 static void __exit elc_core_exit(void) {
-    if (my_elc.polling_thread) kthread_stop(my_elc.polling_thread);
+    if (my_elc.polling_thread) {
+        kthread_stop(my_elc.polling_thread);
+    }
     sysfs_remove_file(v5_kobj, &level_attribute.attr);
     kobject_put(v5_kobj);
     misc_deregister(&elc_misc_dev);
