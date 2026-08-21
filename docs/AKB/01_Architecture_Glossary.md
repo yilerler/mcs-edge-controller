@@ -76,9 +76,7 @@ X══════════════════════════�
 
 | Term (架構語彙) | Repository Evidence | Definition (客觀約束定義) |
 | --- | --- | --- |
-| **Anti-Corruption Layer (ACL)** | `it_gateway_node.py`<br>
-
-<br>`ot_gateway_node.cpp` | **防腐層。** 架構的邊緣護城河，透過 `[ TYPE SHIELD ]` 與 `[ FALLBACK GENERATOR ]` 將網路不確定性與髒資料徹底阻擋於 DDS 匯流排之外。 |
+| **Anti-Corruption Layer (ACL)** | `it_gateway_node.py`<br>`ot_gateway_node.cpp` | **防腐層。** 架構的邊緣護城河，透過 `[ TYPE SHIELD ]` 與 `[ FALLBACK GENERATOR ]` 將網路不確定性與髒資料徹底阻擋於 DDS 匯流排之外。 |
 | **Intent Veto (意圖否決權)** | `bridge_node.cpp` | **邊緣主權展現。** 在 L1 外殼層實施的防護屏障 `[ VETO BARRIER ]`。當實體處於危險狀態時，強制丟棄雲端的下行配置，防止錯誤指令覆蓋本地安全狀態。 |
 | **State Stripped (無狀態化)** | `aq_node.py` 等 | **決策權剝離。** L3 感測節點被強制硬編碼寫入 `STATE_NORMAL`。確保節點只能如實呈報數據，消除分散式系統中多節點競爭決策（Split-brain）的風險。 |
 | **Star Topology** | ROS 2 Topic 規劃 | **星型拓樸。** L3 節點彼此完全盲目。所有遙測數據必須上傳至 DDS 匯流排並由 L1 統籌，強制建立系統的單一真理來源（SSOT）。 |
