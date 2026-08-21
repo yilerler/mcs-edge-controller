@@ -165,7 +165,7 @@ colcon build --symlink-install
 
 若上述物理手段皆無法排除故障，代表系統可能遭遇了未預期的架構性崩潰（例如：狀態機卡死於非法狀態、DDS 網域衝突）。
 請立即參閱 **[Architecture Governance (架構治理法典)](./docs/ARCHITECTURE_GOVERNANCE.md)** 中的「異常處理與對帳機制」，透過檢視 SSOT 狀態轉移日誌來釐清問題根源。
-
+</details>
 
 
 ## 📜 授權 (License)
