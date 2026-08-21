@@ -1,8 +1,33 @@
 # 01_Architecture_Glossary.md
 
-**Repository:** `mcs-edge-controller-5.2.4`
+**Repository:** `mcs-edge-controller-5.3.0`
 
-本字典作為專案的「架構正典（Architecture Canon）」，確保所有開發、設計與文件溝通皆具備唯一性，消弭領域歧義。本文件將 Term（架構語彙）、Repository Evidence（實體目錄證據）與 Definition（客觀約束定義）嚴格綁定，**並以「約束優先（Constraint-First）」的原則視覺化全域邊界。**
+本字典與目錄作為專案的「架構正典（Architecture Canon）」，確保所有開發、設計與文件溝通皆具備唯一性，消弭領域歧義。本文件將 Term（架構語彙）、Repository Evidence（實體目錄證據）與 Definition（客觀約束定義）嚴格綁定，**並以「約束優先（Constraint-First）」的原則視覺化全域邊界。**
+
+---
+
+## 📖 架構知識庫 (AKB) 導覽目錄
+
+本專案的 AKB 嚴格依照系統的權力階層（由硬到軟、由底層到應用層）進行遞進式定義。欲深入了解系統各層級的防禦機制與設計意圖，請依序參閱以下正典文件：
+
+1. **[01_Architecture_Glossary.md](./01_Architecture_Glossary.md) (本文件)**
+   * **定位：** 系統總覽與語意基準。
+   * **內容：** 系統全域邊界視圖、權力拓樸圖，以及全域架構語彙對照表。
+2. **[02_OT_Defense_Layer.md](./02_OT_Defense_Layer.md)**
+   * **定位：** L0 實體防禦層 (Kernel Space)。
+   * **內容：** 決定性安全迴圈 (Deterministic Safety Loop) 的實作、實體自治煞車權限，以及核心驅動模組的防禦機制。
+3. **[03_ICD_Contract.md](./03_ICD_Contract.md)**
+   * **定位：** L0.5 靜態合約界 (The Boundary)。
+   * **內容：** 12 Bytes 剛性 ABI 記憶體佈局、編譯期斷言約束，以及跨越 Kernel/User Space 的 `ioctl` 物理屏障設計。
+4. **[04_Core_Bridge_FSM.md](./04_Core_Runtime.md)**
+   * **定位：** L1 領域大腦 (The SSOT)。
+   * **內容：** 純 C++ 領域狀態機 (FSM) 轉移矩陣、邊緣狀態裁量權，以及單一真理來源的維護機制。
+5. **[05_Gateways_ACL.md](./05_Gateway.md)**
+   * **定位：** L2 防腐層 (Anti-Corruption Layers)。
+   * **內容：** 北向閘道的「雲端意圖否決 (Intent Veto) / 型別攔截」與南向閘道的「硬體崩潰優雅降級」實作。
+6. **[06_Stateless_Services.md](./06_Service.md)**
+   * **定位：** L3 無狀態微服務 (Edge Services)。
+   * **內容：** 星型拓樸 (Star Topology) 部署約束、決策權剝離 (State Stripped) 原則，以及零水平耦合的 DDS 匯流排設計。
 
 ---
 
@@ -26,7 +51,7 @@
 +====│====+     +====│====+     +====│====+     +====│====+        │
 |L3: M3   |     |L3: M4   |     |L3: M5   |     |L3: M6   |        │
 |[CHAOS   |     |[STATE   |     |[STATE   |     |[CRASH   |        │
-| ENGINE] |     | STRIPPED|     | STRIPPED|     | SHIELD] |        │
+| ENGINE] |     |STRIPPED]|     |STRIPPED]|     | SHIELD] |        │
 +=========+     +=========+     +=========+     +=========+        │
      │               │               │               │             │
      └───────────────┴───────┬───────┴───────────────┘             │
