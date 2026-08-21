@@ -1,5 +1,8 @@
 # MCS Edge Controller Architecture Governance
 
+> *"The essence of software architecture lies not in the capabilities it grants the system, but in the constraints it imposes."*
+> (軟體架構的本質，不在於它賦予了系統什麼能力，而在於它對系統施加了什麼約束。)
+
 本文件為 MCS Edge Controller 的「架構治理法典」。
 我們不將文件視為單純的「說明書」，而是將其視為一套 **「工件中介的架構治理系統 (Artifact-Mediated Architecture Governance)」**。本文件定義了系統中的知識如何被宣告、追蹤、驗證與修改，以確保架構的設計意圖與底層程式碼永遠保持一致。
 
@@ -85,7 +88,4 @@
 
 > **治理守則：** 任何透過上述對帳流程抓出的架構性 Bug，在修復程式碼後，必須同步回頭檢視並更新 AKB 中的狀態機或合約定義，確保「文件正典」與「程式碼現實」再次咬合。
 
----
 
-> *"The essence of software architecture lies not in the capabilities it grants the system, but in the constraints it imposes."*
-> (軟體架構的本質，不在於它賦予了系統什麼能力，而在於它對系統施加了什麼約束。)
