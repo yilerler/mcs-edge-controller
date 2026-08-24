@@ -78,7 +78,7 @@
 
 1. **L0 實體防線對帳 (The Physical Check):** 
    * 檢查 Kernel Log (`dmesg`)。
-   * 若發現記憶體錯位或 `[WRITE REJECTED]` 以外的錯誤，代表 **12 Bytes ABI 剛性合約被破壞**。此為最高危險級別 (P0)，必須優先修復 `v5_elc.ko` 驅動或 `v5_interfaces` 型別。
+   * 若發現記憶體錯位或 `[WRITE REJECTED]` 以外的錯誤，代表 **12 Bytes ABI 剛性合約被破壞**。此為最高危險級別 (P0)，必須優先修復 `mock_elc_core.ko` 驅動或 `v5_interfaces` 型別。
 2. **L1 語意大腦對帳 (The SSOT Check):**
    * 檢查 ROS 2 核心大腦 (`v5_core_bridge`) 的狀態機 (FSM) 日誌。
    * 比對「L0 回報的實體感測值」與「L1 FSM 當下的 State」。若兩者矛盾（例如：OT 已經斷電，但 L1 狀態仍顯示為 `NORMAL`），代表 **狀態機轉移矩陣 (State Transition Matrix) 出現死結或漏洞**。
