@@ -70,7 +70,7 @@
 
 ## 4. 運行期異常與架構對帳機制 (Runtime Anomaly & Reconciliation)
 
-在本系統中，我們不將 Bug 視為單純的程式碼錯誤，而是將其視為**「實體現實與邏輯合約之間的對帳失敗 (Reconciliation Failure)」**。當系統在運行期 (Runtime) 遭遇崩潰、卡死或非預期行為時，必須依循以下架構邊界進行對帳：
+在本系統中，我們不將 Bug 視為單純的程式碼錯誤，而是將其視為 **「實體現實與邏輯合約之間的對帳失敗 (Reconciliation Failure)」**。當系統在運行期 (Runtime) 遭遇崩潰、卡死或非預期行為時，必須依循以下架構邊界進行對帳：
 
 ### 4.1 邊界對帳三步驟 (The 3-Step Reconciliation)
 
